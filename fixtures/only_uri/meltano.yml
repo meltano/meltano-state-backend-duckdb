@@ -1,0 +1,8 @@
+requires_meltano: ">=3.7"
+default_environment: dev
+project_id: 1ec76bd8-4499-4bad-a974-b27225d75f14
+send_anonymous_usage_stats: false
+environments:
+- name: dev
+state_backend:
+  uri: duckdb://md:test_database?motherduck_token=test_token
