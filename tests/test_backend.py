@@ -11,11 +11,13 @@ from meltano.core.state_store.base import MissingStateBackendSettingsError, Stat
 
 from meltano_state_backend_duckdb.backend import (
     DuckDBStateStoreManager,
+    catalog_name_from_target,
     database_target_from_uri,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+    from pathlib import Path
 
     from meltano.core.project import Project
 
@@ -72,6 +74,27 @@ def test_database_target_missing() -> None:
         match="DuckDB database path or MotherDuck database is required",
     ):
         database_target_from_uri("duckdb://")
+
+
+# ---------------------------------------------------------------------------
+# catalog_name_from_target
+# ---------------------------------------------------------------------------
+
+
+def test_catalog_name_memory() -> None:
+    assert catalog_name_from_target(":memory:") == "memory"
+
+
+def test_catalog_name_local_file() -> None:
+    assert catalog_name_from_target("/absolute/path/state.duckdb") == "state"
+
+
+def test_catalog_name_motherduck() -> None:
+    assert catalog_name_from_target("md:my_database") == "my_database"
+
+
+def test_catalog_name_motherduck_empty_database() -> None:
+    assert catalog_name_from_target("md:") == "my_db"
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +289,26 @@ def test_get_state_ids_with_pattern(subject: DuckDBStateStoreManager) -> None:
 
     state_ids = sorted(subject.get_state_ids("test_*"))
     assert state_ids == ["test_job_1", "test_job_2"]
+
+
+def test_schema_name_colliding_with_catalog_name(tmp_path: Path) -> None:
+    """A schema name that collides with the catalog name (e.g. a MotherDuck database
+    named "meltano" colliding with DEFAULT_SCHEMA_NAME) must not raise DuckDB's
+    "Ambiguous reference to catalog or schema" BinderException -- every reference is
+    fully qualified with the catalog name precisely to avoid that ambiguity.
+    """
+    db_path = tmp_path / "meltano.duckdb"
+    manager = DuckDBStateStoreManager(uri=f"duckdb://{db_path}", schema="meltano", table="state")
+    try:
+        assert manager.catalog == "meltano"
+
+        manager.set(MeltanoState(state_id="test_job", partial_state={"a": 1}))
+        result = manager.get("test_job")
+
+        assert result is not None
+        assert result.partial_state == {"a": 1}
+    finally:
+        manager.close()
 
 
 def test_close_is_idempotent(subject: DuckDBStateStoreManager) -> None:

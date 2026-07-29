@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import uuid
 from contextlib import contextmanager
@@ -132,6 +133,37 @@ def database_target_from_uri(
     return target, token
 
 
+def catalog_name_from_target(target: str) -> str:
+    """Derive the DuckDB catalog (database) name a connection target resolves to.
+
+    DuckDB names the current/default catalog after the connection target: ``"memory"``
+    for ``:memory:``, the file's stem for a local path, or the database name for a
+    MotherDuck (``md:<database>``) target. Schema/table references built as ``schema.table``
+    (rather than ``catalog.schema.table``) are resolved against this catalog implicitly,
+    which becomes ambiguous the moment a schema name collides with it -- e.g. a MotherDuck
+    database named "meltano" colliding with DEFAULT_SCHEMA_NAME. Fully qualifying every
+    reference with the catalog name (derived here) sidesteps that ambiguity entirely.
+
+    Args:
+        target: the value passed to ``duckdb.connect()`` -- a local file path,
+            ``":memory:"``, or ``"md:<database>"``.
+
+    Returns:
+        The catalog name DuckDB will use for this connection.
+    """
+    if target == ":memory:":
+        return "memory"
+
+    parsed = urlparse(target)
+    if parsed.scheme in {"md", "motherduck"}:
+        base_file = os.path.basename(parsed.path)
+        path_db = os.path.splitext(base_file)[0]
+        return path_db or "my_db"
+
+    base_file = os.path.basename(target)
+    return os.path.splitext(base_file)[0]
+
+
 class DuckDBStateStoreManager(StateStoreManager):
     """State backend for DuckDB and MotherDuck."""
 
@@ -169,8 +201,13 @@ class DuckDBStateStoreManager(StateStoreManager):
 
         self.schema = schema or DEFAULT_SCHEMA_NAME
         self.table = table or DEFAULT_TABLE_NAME
-        self.state_table = f'"{self.schema}"."{self.table}"'
-        self.lock_table = f'"{self.schema}"."{self.table}_lock"'
+        # Fully qualified with the catalog name (not just schema.table) so a schema name
+        # that collides with the catalog name -- e.g. a MotherDuck database named "meltano"
+        # colliding with DEFAULT_SCHEMA_NAME -- doesn't hit DuckDB's "Ambiguous reference to
+        # catalog or schema" error, which fully-qualified references sidestep entirely.
+        self.catalog = catalog_name_from_target(self.target)
+        self.state_table = f'"{self.catalog}"."{self.schema}"."{self.table}"'
+        self.lock_table = f'"{self.catalog}"."{self.schema}"."{self.table}_lock"'
 
         self._connection: duckdb.DuckDBPyConnection | None = None
         self._ensure_tables()
@@ -196,7 +233,7 @@ class DuckDBStateStoreManager(StateStoreManager):
 
     def _ensure_tables(self) -> None:
         """Create the schema and the state/lock tables if absent."""
-        self.connection.execute(f'CREATE SCHEMA IF NOT EXISTS "{self.schema}"')
+        self.connection.execute(f'CREATE SCHEMA IF NOT EXISTS "{self.catalog}"."{self.schema}"')
         self.connection.execute(
             f"""
             CREATE TABLE IF NOT EXISTS {self.state_table} (
