@@ -115,6 +115,7 @@ def test_get_manager(project: Project) -> None:
     assert parsed.scheme == "duckdb"
 
     assert manager.target == ":memory:"
+    assert manager.label == "DuckDB"
     assert manager.schema == "test_schema"
     assert manager.table == "test_table"
     assert manager.is_motherduck is False
@@ -135,6 +136,7 @@ def test_get_manager_from_uri(project_with_uri: Project) -> None:
     assert manager.target == "md:test_database"
     assert manager.motherduck_token == "test_token"  # noqa: S105
     assert manager.is_motherduck is True
+    assert manager.label == "MotherDuck"
     assert manager.schema == "meltano"
     assert manager.table == "state"
 
@@ -292,7 +294,9 @@ def test_get_state_ids_with_pattern(subject: DuckDBStateStoreManager) -> None:
 
 
 def test_schema_name_colliding_with_catalog_name(tmp_path: Path) -> None:
-    """A schema name that collides with the catalog name (e.g. a MotherDuck database
+    """Test schema name colliding with catalog name.
+
+    A schema name that collides with the catalog name (e.g. a MotherDuck database
     named "meltano" colliding with DEFAULT_SCHEMA_NAME) must not raise DuckDB's
     "Ambiguous reference to catalog or schema" BinderException -- every reference is
     fully qualified with the catalog name precisely to avoid that ambiguity.
