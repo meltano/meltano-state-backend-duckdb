@@ -154,6 +154,7 @@ def catalog_name_from_target(target: str) -> str:
     if target == ":memory:":
         return "memory"
 
+    # ruff: disable[PTH119,PTH122]
     parsed = urlparse(target)
     if parsed.scheme in {"md", "motherduck"}:
         base_file = os.path.basename(parsed.path)
@@ -162,6 +163,7 @@ def catalog_name_from_target(target: str) -> str:
 
     base_file = os.path.basename(target)
     return os.path.splitext(base_file)[0]
+    # ruff: enable[PTH119,PTH122]
 
 
 class DuckDBStateStoreManager(StateStoreManager):
@@ -171,7 +173,7 @@ class DuckDBStateStoreManager(StateStoreManager):
     @override
     def label(self) -> str:
         """Return a human-readable label for this backend."""
-        return "DuckDB"  # pragma: no cover
+        return "MotherDuck" if self.is_motherduck else "DuckDB"
 
     def __init__(
         self,
